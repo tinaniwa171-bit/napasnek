@@ -8,94 +8,97 @@ import os
 st.set_page_config(layout="wide", page_title="NAPASNEK QBANK")
 
 # ---------------------------------------------------------
-# FILE SYSTEM LOGIC
+# 1. SMART FILE FINDER
 # ---------------------------------------------------------
 def get_file_content(page_name):
     """
-    Smart file finder. It looks for the file even if you 
-    accidentally capitalized it differently (e.g. 'anatomy.html' vs 'Anatomy.html').
+    Finds the correct HTML file even if capitalization is different
+    (e.g., finds 'Anatomy.html' when looking for 'anatomy.html').
     """
     # Map the URL ?page=name to the likely filename
     mapping = {
         "home": "index.html",
         "biochemistry": "biochemistry.html",
         "physiology": "physiology.html",
-        "anatomy": "Anatomy.html" # Tries this first
+        "anatomy": "Anatomy.html"  # Your file has a capital 'A'
     }
     
     target_filename = mapping.get(page_name, "index.html")
     
-    # 1. Try exact match
+    # Check current directory files to find a match (case-insensitive)
     if os.path.exists(target_filename):
         with open(target_filename, "r", encoding='utf-8') as f:
             return f.read()
             
-    # 2. Try case-insensitive search (Fixes 'anatomy.html' vs 'Anatomy.html' issues)
+    # Fallback: Scan directory if exact name not found
     for f in os.listdir():
         if f.lower() == target_filename.lower():
             with open(f, "r", encoding='utf-8') as file:
                 return file.read()
                 
-    # 3. Error if not found
     return None
 
 # ---------------------------------------------------------
-# JAVASCRIPT NAVIGATION FIX (The Magic Part)
+# 2. NAVIGATION SCRIPT (The Fix)
 # ---------------------------------------------------------
-# Instead of Python replacing text, we inject this Script into the HTML.
-# It waits for the page to load, finds your links, and fixes them automatically.
+# This Javascript forces the browser top window to reload when a link is clicked.
 nav_script = """
 <script>
     document.addEventListener("DOMContentLoaded", function() {
         const links = document.querySelectorAll("a");
         links.forEach(link => {
-            const href = link.getAttribute("href");
-            if (href) {
-                const lowerHref = href.toLowerCase();
-                
-                // If link goes to anatomy, force Streamlit navigation
-                if (lowerHref.includes("anatomy.html")) {
-                    link.href = "?page=anatomy";
-                    link.target = "_top"; // Forces the whole page to reload
-                } 
-                else if (lowerHref.includes("biochemistry.html")) {
-                    link.href = "?page=biochemistry";
-                    link.target = "_top";
+            link.addEventListener('click', function(event) {
+                const href = this.getAttribute("href");
+                if (href && href !== '#') {
+                    event.preventDefault(); // Stop default behavior
+                    
+                    // Determine which page to load based on the link text
+                    let targetPage = 'home';
+                    const lowerHref = href.toLowerCase();
+                    
+                    if (lowerHref.includes("anatomy")) {
+                        targetPage = 'anatomy';
+                    } else if (lowerHref.includes("biochemistry")) {
+                        targetPage = 'biochemistry';
+                    } else if (lowerHref.includes("physiology")) {
+                        targetPage = 'physiology';
+                    } else if (lowerHref.includes("index")) {
+                        targetPage = 'home';
+                    }
+                    
+                    // Force the main browser window to navigate
+                    window.top.location.href = "?page=" + targetPage;
                 }
-                else if (lowerHref.includes("physiology.html")) {
-                    link.href = "?page=physiology";
-                    link.target = "_top";
-                }
-                else if (lowerHref.includes("index.html")) {
-                    link.href = "?page=home";
-                    link.target = "_top";
-                }
-            }
+            });
         });
     });
 </script>
 """
 
 # ---------------------------------------------------------
-# APP EXECUTION
+# 3. APP EXECUTION
 # ---------------------------------------------------------
 
-# 1. Get current page from URL (defaults to 'home')
+# Get the current page from the URL query parameter (defaults to 'home')
 query_params = st.query_params
 page = query_params.get("page", "home")
 
-# 2. Load the HTML content
+# Load the HTML
 html_content = get_file_content(page)
 
 if html_content:
-    # 3. Inject the Navigation Script at the end of the <body>
-    # This ensures your links work perfectly every time.
-    final_html = html_content + nav_script
+    # Inject the Navigation Script before the closing body tag
+    # This ensures the script runs and attaches to your buttons
+    if "</body>" in html_content:
+        final_html = html_content.replace("</body>", nav_script + "</body>")
+    else:
+        final_html = html_content + nav_script
     
-    # 4. Render
+    # Render the HTML
     components.html(final_html, height=1000, scrolling=True)
+
 else:
     st.error("⚠️ **System Error:** Could not find the HTML files.")
-    st.info(f"Looking for page: `{page}`")
-    st.write("Files found in current folder:", os.listdir())
-    st.warning("Please make sure `index.html`, `Anatomy.html`, `biochemistry.html`, and `physiology.html` are in the same folder as `app.py`.")
+    st.warning(f"Attempted to load: {page}")
+    st.info("Please make sure `index.html`, `Anatomy.html`, `biochemistry.html`, and `physiology.html` are in the same folder as `app.py`.")
+    st.write("Files detected in current folder:", os.listdir())
