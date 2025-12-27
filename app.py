@@ -1,92 +1,142 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import os
+import re
 
 # ---------------------------------------------------------
 # CONFIGURATION
 # ---------------------------------------------------------
 st.set_page_config(layout="wide", page_title="NAPASNEK QBANK")
 
-# ---------------------------------------------------------
-# 1. SETUP FILE PATHS
-# ---------------------------------------------------------
-# Maps the 'page' parameter in the URL to the ACTUAL filename.
-# We handle both lowercase 'anatomy' and Capital 'Anatomy' here.
-PAGE_MAP = {
-    "home": "index.html",
-    "biochemistry": "biochemistry.html",
-    "physiology": "physiology.html",
-    "anatomy": "Anatomy.html", # Capital A, matching your file
-}
+# Credentials
+VALID_USERNAME = "napasnek"
+VALID_PASSWORD = "napasnek2028"
 
 # ---------------------------------------------------------
-# 2. HELPER: LOAD & FIX HTML LINKS
+# 1. SESSION STATE SETUP (Memory)
 # ---------------------------------------------------------
-def load_and_fix_html(page_name):
-    # A. Determine which file to open
-    filename = PAGE_MAP.get(page_name, "index.html")
+# This remembers if you are logged in, even when pages change.
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+
+# ---------------------------------------------------------
+# 2. LOGIN SYSTEM (Python Native)
+# ---------------------------------------------------------
+def login_screen():
+    st.markdown("""
+        <style>
+            .login-container {
+                max-width: 400px;
+                margin: 100px auto;
+                padding: 2rem;
+                background: white;
+                border-radius: 10px;
+                box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+                text-align: center;
+                font-family: 'Segoe UI', sans-serif;
+            }
+        </style>
+    """, unsafe_allow_html=True)
     
-    # B. Safety Check: Does the file exist?
+    col1, col2, col3 = st.columns([1,1,1])
+    with col2:
+        st.title("🔒 Login")
+        user = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        
+        if st.button("Access Portal", type="primary"):
+            if user == VALID_USERNAME and password == VALID_PASSWORD:
+                st.session_state.logged_in = True
+                st.rerun()
+            else:
+                st.error("Invalid Credentials")
+
+# ---------------------------------------------------------
+# 3. HTML CLEANER
+# ---------------------------------------------------------
+def clean_html_for_streamlit(page_name):
+    """
+    Reads the HTML files and modifies them to work inside Streamlit.
+    """
+    files = {
+        "home": "index.html",
+        "biochemistry": "biochemistry.html",
+        "physiology": "physiology.html",
+        "anatomy": "Anatomy.html"
+    }
+    
+    filename = files.get(page_name, "index.html")
+    
+    # Robust File Finder (Case Insensitive)
     if not os.path.exists(filename):
-        # Try case-insensitive fallback (e.g. finding Anatomy.html if anatomy.html requested)
-        found = False
         for f in os.listdir():
             if f.lower() == filename.lower():
                 filename = f
-                found = True
                 break
-        if not found:
-            return None, f"File not found: {filename}"
-
-    # C. Read the file
-    with open(filename, "r", encoding="utf-8") as f:
-        html_content = f.read()
-
-    # D. THE FIX: REPLACE LINKS
-    # We essentially 'rewrite' your HTML before showing it.
-    # We change standard file links to Streamlit Navigation links.
-    # target="_top" forces the MAIN window to reload, not just the iframe.
     
-    replacements = {
-        # Dashboard Links -> Streamlit Navigation
-        'href="biochemistry.html"': 'href="?page=biochemistry" target="_top"',
-        'href="physiology.html"':   'href="?page=physiology" target="_top"',
-        'href="anatomy.html"':      'href="?page=anatomy" target="_top"',
-        'href="Anatomy.html"':      'href="?page=anatomy" target="_top"',
-        'href="index.html"':        'href="?page=home" target="_top"',
+    with open(filename, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    # --- SPECIAL FIX FOR DASHBOARD (index.html) ---
+    if page_name == "home":
+        # 1. Remove the HTML Login Overlay (since Python handles it now)
+        html = re.sub(r'<div id="login-overlay">.*?</div>', '', html, flags=re.DOTALL)
         
-        # Handle Single Quotes (just in case)
-        "href='biochemistry.html'": "href='?page=biochemistry' target='_top'",
-        "href='physiology.html'":   "href='?page=physiology' target='_top'",
-        "href='anatomy.html'":      "href='?page=anatomy' target='_top'",
-        "href='Anatomy.html'":      "href='?page=anatomy' target='_top'",
-        "href='index.html'":        "href='?page=home' target='_top'"
+        # 2. Force the dashboard to be visible (it was hidden by default in your CSS)
+        html = html.replace('display: none;', 'display: flex;') 
+        html = html.replace('#dashboard-content {', '#dashboard-content { display: block !important;')
+
+    # --- FIX ALL LINKS ---
+    # Convert standard links to Streamlit URL parameters
+    replacements = {
+        'href="biochemistry.html"': 'href="?page=biochemistry" target="_self"',
+        'href="physiology.html"':   'href="?page=physiology" target="_self"',
+        'href="anatomy.html"':      'href="?page=anatomy" target="_self"',
+        'href="Anatomy.html"':      'href="?page=anatomy" target="_self"',
+        'href="index.html"':        'href="?page=home" target="_self"'
     }
     
     for old, new in replacements.items():
-        html_content = html_content.replace(old, new)
+        html = html.replace(old, new)
         
-    return html_content, None
+    return html
 
 # ---------------------------------------------------------
-# 3. MAIN APP LOGIC
+# 4. MAIN APP LOGIC
 # ---------------------------------------------------------
 
-# A. Get current page from URL query params
-query_params = st.query_params
-current_page = query_params.get("page", "home")
-
-# B. Load the content
-html_data, error = load_and_fix_html(current_page)
-
-if html_data:
-    # C. Render the HTML
-    # height=1000 ensures it fits on screen
-    # scrolling=True allows you to scroll long quizzes
-    components.html(html_data, height=1000, scrolling=True)
+if not st.session_state.logged_in:
+    login_screen()
 else:
-    # Error Screen
-    st.error("⚠️ System Error")
-    st.warning(f"Could not load page: {error}")
-    st.info("Please verify your file names match exactly: `index.html`, `Anatomy.html`, `biochemistry.html`, `physiology.html`")
-    st.write("Files in current folder:", os.listdir())
+    # Get current page from URL
+    query_params = st.query_params
+    page = query_params.get("page", "home")
+    
+    # Load the HTML content
+    try:
+        html_content = clean_html_for_streamlit(page)
+        
+        if page == "home":
+            # For the Dashboard, we use st.markdown so links allow navigation
+            # We wrap it in a div to ensure styling applies
+            st.markdown(html_content, unsafe_allow_html=True)
+            
+            # Hide default Streamlit padding for a cleaner look
+            st.markdown("""
+                <style>
+                    .block-container { padding-top: 1rem; padding-bottom: 0rem; }
+                    header { visibility: hidden; }
+                    footer { visibility: hidden; }
+                </style>
+            """, unsafe_allow_html=True)
+            
+        else:
+            # For Quiz Pages (Anatomy/Physio/Bio), we MUST use components.html
+            # because they contain complex JavaScript for the quiz logic.
+            # We inject a <base> tag to ensure the "Back" button works.
+            html_content = '<base target="_top">' + html_content
+            components.html(html_content, height=1000, scrolling=True)
+            
+    except Exception as e:
+        st.error("Error loading file. Please ensure index.html, Anatomy.html, biochemistry.html, and physiology.html are in this folder.")
+        st.code(e)
