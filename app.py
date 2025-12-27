@@ -1,89 +1,102 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import os
+import re
 
 # ---------------------------------------------------------
 # CONFIGURATION
 # ---------------------------------------------------------
 st.set_page_config(layout="wide", page_title="NAPASNEK QBANK")
 
-# Map your "clean" URL names to the actual filenames
-# Note: Ensure the filenames here match EXACTLY what is in your folder
+# 1. FILE MAPPING
+# We use this to know which real file to open when a "page name" is requested.
+# Keys are the "page" names used in the URL (?page=anatomy).
+# Values are the ACTUAL filenames on your disk.
 FILES = {
     "home": "index.html",
     "biochemistry": "biochemistry.html",
     "physiology": "physiology.html",
-    "anatomy": "Anatomy.html"  # User uploaded this as 'Anatomy.html' (Capital A)
+    "anatomy": "Anatomy.html"  # Note the capital 'A' to match your file
 }
+
+# ---------------------------------------------------------
+# HELPER: FIND FILE CASE-INSENSITIVE
+# ---------------------------------------------------------
+def get_real_filename(target_filename):
+    """Finds the file even if you messed up the capitalization."""
+    if os.path.exists(target_filename):
+        return target_filename
+    
+    # Search directory for a match ignoring case
+    for f in os.listdir():
+        if f.lower() == target_filename.lower():
+            return f
+    return None
 
 # ---------------------------------------------------------
 # APP LOGIC
 # ---------------------------------------------------------
 
-# 1. Determine which page to show based on the URL query parameter
-# Example: ?page=anatomy loads Anatomy.html
+# 2. GET CURRENT PAGE FROM URL
+# Defaults to "home" if ?page= is missing
 query_params = st.query_params
 current_page = query_params.get("page", "home")
 
-# 2. Get the corresponding filename
+# Fallback if the requested page is not in our dictionary
 if current_page not in FILES:
     current_page = "home"
-    
-file_name = FILES[current_page]
 
-# 3. Check if file exists to prevent errors
-if not os.path.exists(file_name):
-    # Try case-insensitive fallback (e.g., if link is anatomy.html but file is Anatomy.html)
-    found = False
-    for f in os.listdir():
-        if f.lower() == file_name.lower():
-            file_name = f
-            found = True
-            break
-    
-    if not found:
-        st.error(f"⚠️ Error: The file `{file_name}` was not found in the directory.")
-        st.info("Please make sure `index.html`, `Anatomy.html`, `biochemistry.html`, and `physiology.html` are all in the same folder as `app.py`.")
-        st.stop()
+target_file = FILES[current_page]
+real_file_path = get_real_filename(target_file)
 
-# 4. Read the HTML file content
-with open(file_name, "r", encoding='utf-8') as f:
+# 3. ERROR HANDLING (If file is missing)
+if not real_file_path:
+    st.error(f"⚠️ **System Error:** Could not find the file `{target_file}`.")
+    st.info(f"Current Directory: `{os.getcwd()}`")
+    st.write("Files found here:", os.listdir())
+    st.stop()
+
+# 4. READ HTML CONTENT
+with open(real_file_path, "r", encoding='utf-8') as f:
     html_content = f.read()
 
 # ---------------------------------------------------------
-# LINK PATCHING SYSTEM
+# THE FIX: REGEX LINK PATCHING
 # ---------------------------------------------------------
-# This is the "Magic" part.
-# Standard HTML links (href="anatomy.html") won't work inside a Streamlit component iframe.
-# We replace them with query parameters (href="?page=anatomy") and target="_top".
-# This forces the whole Streamlit app to reload and navigate to the correct page.
+# This function intercepts ANY link ending in .html and converts it
+# to a Streamlit-friendly navigation command.
 
-replacements = {
-    # Replace Links to Biochemistry
-    'href="biochemistry.html"': 'href="?page=biochemistry" target="_top"',
-    "href='biochemistry.html'": "href='?page=biochemistry' target='_top'",
-    
-    # Replace Links to Physiology
-    'href="physiology.html"': 'href="?page=physiology" target="_top"',
-    "href='physiology.html'": "href='?page=physiology' target='_top'",
-    
-    # Replace Links to Anatomy (handling lowercase link from index vs uppercase filename)
-    'href="anatomy.html"': 'href="?page=anatomy" target="_top"',
-    "href='anatomy.html'": "href='?page=anatomy' target='_top'",
-    'href="Anatomy.html"': 'href="?page=anatomy" target="_top"',
-    
-    # Replace Links back to Dashboard
-    'href="index.html"': 'href="?page=home" target="_top"',
-    "href='index.html'": "href='?page=home' target='_top'"
-}
+def replace_link(match):
+    # Extract the full link (e.g., "anatomy.html" or "Anatomy.html")
+    original_link = match.group(1)
+    lower_link = original_link.lower()
 
-# Apply the replacements to the HTML string
-for old_link, new_link in replacements.items():
-    html_content = html_content.replace(old_link, new_link)
+    # Map the HTML file to the ?page= parameter
+    if "biochemistry" in lower_link:
+        new_target = "?page=biochemistry"
+    elif "physiology" in lower_link:
+        new_target = "?page=physiology"
+    elif "anatomy" in lower_link:
+        new_target = "?page=anatomy"
+    elif "index" in lower_link: # Back to dashboard
+        new_target = "?page=home"
+    else:
+        # If it's some other link we don't know, leave it alone
+        return match.group(0)
+    
+    # Return the new constructed link with target="_top" (forces reload)
+    return f'href="{new_target}" target="_top"'
+
+# Use Regex to find href="something.html" or href='something.html'
+# This handles spaces, single quotes, double quotes, etc.
+html_content = re.sub(
+    r'href=["\']([^"\']+\.html)["\']', 
+    replace_link, 
+    html_content, 
+    flags=re.IGNORECASE
+)
 
 # ---------------------------------------------------------
 # RENDER
 # ---------------------------------------------------------
-# Render the patched HTML. 
-# height=1000 ensures it takes up most of the screen.
 components.html(html_content, height=1000, scrolling=True)
