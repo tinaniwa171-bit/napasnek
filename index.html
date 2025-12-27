@@ -416,7 +416,42 @@
                 document.getElementById('password').value = '';
             }
         });
+
+<script>
+    // CREDENTIALS
+    const VALID_USER = "napasnek";
+    const VALID_PASS = "napasnek2028";
+
+    // CHECK LOGIN ON LOAD
+    document.addEventListener("DOMContentLoaded", function() {
+        const isLoggedIn = sessionStorage.getItem("napasnek_auth");
+        const loginOverlay = document.getElementById("login-overlay");
+        const dashboard = document.getElementById("dashboard-content");
+
+        if (isLoggedIn === "true") {
+            loginOverlay.style.display = "none";
+            dashboard.style.display = "flex"; // Or 'block' depending on your CSS
+        } else {
+            loginOverlay.style.display = "flex";
+            dashboard.style.display = "none";
+        }
+    });
+
+    // LOGIN FUNCTION
+    document.getElementById("loginForm").addEventListener("submit", function(e) {
+        e.preventDefault();
+        const u = document.getElementById("username").value;
+        const p = document.getElementById("password").value;
+
+        if (u === VALID_USER && p === VALID_PASS) {
+            sessionStorage.setItem("napasnek_auth", "true");
+            location.reload(); // Refresh to show dashboard
+        } else {
+            alert("Invalid Credentials!");
+        }
+    });
     </script>
 
 </body>
+
 </html>
