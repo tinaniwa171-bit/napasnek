@@ -384,39 +384,6 @@
             </div>
         </footer>
     </div>
-
-    <script>
-        // ==========================================
-        // CONFIGURATION: SET YOUR CREDENTIALS HERE
-        // ==========================================
-        const VALID_USERNAME = "napasnek";
-        const VALID_PASSWORD = "napasnek2028"; 
-        // ==========================================
-
-        const loginForm = document.getElementById('loginForm');
-        const loginOverlay = document.getElementById('login-overlay');
-        const dashboardContent = document.getElementById('dashboard-content');
-        const errorMsg = document.getElementById('errorMsg');
-
-        loginForm.addEventListener('submit', function(e) {
-            e.preventDefault(); // Prevent page reload
-
-            const userEntry = document.getElementById('username').value;
-            const passEntry = document.getElementById('password').value;
-
-            // Simple check
-            if (userEntry === VALID_USERNAME && passEntry === VALID_PASSWORD) {
-                // Success: Hide login, show dashboard
-                loginOverlay.style.display = 'none';
-                dashboardContent.style.display = 'flex';
-            } else {
-                // Failure: Show error message
-                errorMsg.style.display = 'block';
-                // Shake animation logic could go here
-                document.getElementById('password').value = '';
-            }
-        });
-
 <script>
     // CREDENTIALS
     const VALID_USER = "napasnek";
@@ -455,3 +422,4 @@
 </body>
 
 </html>
+
