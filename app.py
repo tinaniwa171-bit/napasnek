@@ -8,97 +8,86 @@ import os
 st.set_page_config(layout="wide", page_title="NAPASNEK QBANK")
 
 # ---------------------------------------------------------
-# 1. SMART FILE FINDER
+# 1. FILE LOADER & LINK PATCHER
 # ---------------------------------------------------------
-def get_file_content(page_name):
+def load_and_patch_html(page_name):
     """
-    Finds the correct HTML file even if capitalization is different
-    (e.g., finds 'Anatomy.html' when looking for 'anatomy.html').
+    1. Finds the correct file (ignoring capitalization).
+    2. Reads the HTML.
+    3. Replaces standard links (href="page.html") with Streamlit links (href="?page=name" target="_top").
     """
-    # Map the URL ?page=name to the likely filename
-    mapping = {
+    
+    # Mapping "URL names" to "File names"
+    # The keys match the ?page= parameter
+    file_map = {
         "home": "index.html",
         "biochemistry": "biochemistry.html",
         "physiology": "physiology.html",
-        "anatomy": "Anatomy.html"  # Your file has a capital 'A'
+        "anatomy": "Anatomy.html"  # Note the capital 'A' matching your file
     }
     
-    target_filename = mapping.get(page_name, "index.html")
+    target_filename = file_map.get(page_name, "index.html")
     
-    # Check current directory files to find a match (case-insensitive)
+    # A. FIND THE FILE (Case-Insensitive Handling)
+    real_path = None
     if os.path.exists(target_filename):
-        with open(target_filename, "r", encoding='utf-8') as f:
-            return f.read()
-            
-    # Fallback: Scan directory if exact name not found
-    for f in os.listdir():
-        if f.lower() == target_filename.lower():
-            with open(f, "r", encoding='utf-8') as file:
-                return file.read()
-                
-    return None
-
-# ---------------------------------------------------------
-# 2. NAVIGATION SCRIPT (The Fix)
-# ---------------------------------------------------------
-# This Javascript forces the browser top window to reload when a link is clicked.
-nav_script = """
-<script>
-    document.addEventListener("DOMContentLoaded", function() {
-        const links = document.querySelectorAll("a");
-        links.forEach(link => {
-            link.addEventListener('click', function(event) {
-                const href = this.getAttribute("href");
-                if (href && href !== '#') {
-                    event.preventDefault(); // Stop default behavior
-                    
-                    // Determine which page to load based on the link text
-                    let targetPage = 'home';
-                    const lowerHref = href.toLowerCase();
-                    
-                    if (lowerHref.includes("anatomy")) {
-                        targetPage = 'anatomy';
-                    } else if (lowerHref.includes("biochemistry")) {
-                        targetPage = 'biochemistry';
-                    } else if (lowerHref.includes("physiology")) {
-                        targetPage = 'physiology';
-                    } else if (lowerHref.includes("index")) {
-                        targetPage = 'home';
-                    }
-                    
-                    // Force the main browser window to navigate
-                    window.top.location.href = "?page=" + targetPage;
-                }
-            });
-        });
-    });
-</script>
-"""
-
-# ---------------------------------------------------------
-# 3. APP EXECUTION
-# ---------------------------------------------------------
-
-# Get the current page from the URL query parameter (defaults to 'home')
-query_params = st.query_params
-page = query_params.get("page", "home")
-
-# Load the HTML
-html_content = get_file_content(page)
-
-if html_content:
-    # Inject the Navigation Script before the closing body tag
-    # This ensures the script runs and attaches to your buttons
-    if "</body>" in html_content:
-        final_html = html_content.replace("</body>", nav_script + "</body>")
+        real_path = target_filename
     else:
-        final_html = html_content + nav_script
+        # Fallback: look for the file ignoring case
+        for f in os.listdir():
+            if f.lower() == target_filename.lower():
+                real_path = f
+                break
     
-    # Render the HTML
-    components.html(final_html, height=1000, scrolling=True)
+    if not real_path:
+        return None, f"File not found: {target_filename}"
 
+    # B. READ CONTENT
+    with open(real_path, "r", encoding='utf-8') as f:
+        html_content = f.read()
+
+    # C. PATCH LINKS (The Critical Fix)
+    # We replace local file links with query parameters + target="_top".
+    # target="_top" forces the whole browser tab to reload, which is required for Streamlit navigation.
+    
+    replacements = {
+        'href="index.html"': 'href="?page=home" target="_top"',
+        'href="biochemistry.html"': 'href="?page=biochemistry" target="_top"',
+        'href="physiology.html"': 'href="?page=physiology" target="_top"',
+        'href="anatomy.html"': 'href="?page=anatomy" target="_top"',
+        'href="Anatomy.html"': 'href="?page=anatomy" target="_top"',
+        
+        # Handle single quotes just in case
+        "href='index.html'": "href='?page=home' target='_top'",
+        "href='biochemistry.html'": "href='?page=biochemistry' target='_top'",
+        "href='physiology.html'": "href='?page=physiology' target='_top'",
+        "href='anatomy.html'": "href='?page=anatomy' target='_top'",
+        "href='Anatomy.html'": "href='?page=anatomy' target='_top'"
+    }
+
+    for old_link, new_link in replacements.items():
+        html_content = html_content.replace(old_link, new_link)
+
+    return html_content, None
+
+# ---------------------------------------------------------
+# 2. APP EXECUTION
+# ---------------------------------------------------------
+
+# Get current page from URL (defaults to 'home')
+query_params = st.query_params
+current_page = query_params.get("page", "home")
+
+# Load the content
+html_code, error_msg = load_and_patch_html(current_page)
+
+if html_code:
+    # Render the patched HTML
+    # height=1000 ensures full visibility
+    components.html(html_code, height=1000, scrolling=True)
 else:
-    st.error("⚠️ **System Error:** Could not find the HTML files.")
-    st.warning(f"Attempted to load: {page}")
-    st.info("Please make sure `index.html`, `Anatomy.html`, `biochemistry.html`, and `physiology.html` are in the same folder as `app.py`.")
-    st.write("Files detected in current folder:", os.listdir())
+    # Error Screen
+    st.error("⚠️ **System Error: File Not Found**")
+    st.warning(error_msg)
+    st.info(f"Attempted to load page: `{current_page}`")
+    st.write("Files detected in folder:", os.listdir())
