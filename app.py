@@ -8,94 +8,85 @@ import os
 st.set_page_config(layout="wide", page_title="NAPASNEK QBANK")
 
 # ---------------------------------------------------------
-# 1. FILE FINDER (Handles Capitalization Issues)
+# 1. SETUP FILE PATHS
 # ---------------------------------------------------------
-def get_file_content(page_name):
-    # Mapping of "URL names" to "File names"
-    # We map strictly to the files you uploaded
-    mapping = {
-        "home": "index.html",
-        "biochemistry": "biochemistry.html",
-        "physiology": "physiology.html",
-        "anatomy": "Anatomy.html" # Capital A as per your upload
+# Maps the 'page' parameter in the URL to the ACTUAL filename.
+# We handle both lowercase 'anatomy' and Capital 'Anatomy' here.
+PAGE_MAP = {
+    "home": "index.html",
+    "biochemistry": "biochemistry.html",
+    "physiology": "physiology.html",
+    "anatomy": "Anatomy.html", # Capital A, matching your file
+}
+
+# ---------------------------------------------------------
+# 2. HELPER: LOAD & FIX HTML LINKS
+# ---------------------------------------------------------
+def load_and_fix_html(page_name):
+    # A. Determine which file to open
+    filename = PAGE_MAP.get(page_name, "index.html")
+    
+    # B. Safety Check: Does the file exist?
+    if not os.path.exists(filename):
+        # Try case-insensitive fallback (e.g. finding Anatomy.html if anatomy.html requested)
+        found = False
+        for f in os.listdir():
+            if f.lower() == filename.lower():
+                filename = f
+                found = True
+                break
+        if not found:
+            return None, f"File not found: {filename}"
+
+    # C. Read the file
+    with open(filename, "r", encoding="utf-8") as f:
+        html_content = f.read()
+
+    # D. THE FIX: REPLACE LINKS
+    # We essentially 'rewrite' your HTML before showing it.
+    # We change standard file links to Streamlit Navigation links.
+    # target="_top" forces the MAIN window to reload, not just the iframe.
+    
+    replacements = {
+        # Dashboard Links -> Streamlit Navigation
+        'href="biochemistry.html"': 'href="?page=biochemistry" target="_top"',
+        'href="physiology.html"':   'href="?page=physiology" target="_top"',
+        'href="anatomy.html"':      'href="?page=anatomy" target="_top"',
+        'href="Anatomy.html"':      'href="?page=anatomy" target="_top"',
+        'href="index.html"':        'href="?page=home" target="_top"',
+        
+        # Handle Single Quotes (just in case)
+        "href='biochemistry.html'": "href='?page=biochemistry' target='_top'",
+        "href='physiology.html'":   "href='?page=physiology' target='_top'",
+        "href='anatomy.html'":      "href='?page=anatomy' target='_top'",
+        "href='Anatomy.html'":      "href='?page=anatomy' target='_top'",
+        "href='index.html'":        "href='?page=home' target='_top'"
     }
     
-    target_filename = mapping.get(page_name, "index.html")
-    
-    # Logic: Try to find the file. If exact name fails, try lowercase match.
-    if os.path.exists(target_filename):
-        with open(target_filename, "r", encoding='utf-8') as f:
-            return f.read()
-            
-    # Fallback search
-    for f in os.listdir():
-        if f.lower() == target_filename.lower():
-            with open(f, "r", encoding='utf-8') as file:
-                return file.read()
-                
-    return None
-
-# ---------------------------------------------------------
-# 2. THE JAVASCRIPT FORCE FIX
-# ---------------------------------------------------------
-# This script is appended to every page. It grabs every <a> tag
-# and forces it to behave like a Streamlit navigator.
-force_nav_script = """
-<script>
-    document.addEventListener("DOMContentLoaded", function() {
-        // Get all links on the page
-        const links = document.querySelectorAll("a");
+    for old, new in replacements.items():
+        html_content = html_content.replace(old, new)
         
-        links.forEach(link => {
-            link.addEventListener('click', function(event) {
-                // 1. Stop the link from trying to open a file (which fails)
-                event.preventDefault(); 
-                
-                const href = this.getAttribute("href");
-                
-                if (href) {
-                    let targetPage = 'home';
-                    const lowerHref = href.toLowerCase();
-                    
-                    // 2. Decide where to go based on the link text
-                    if (lowerHref.includes("anatomy")) {
-                        targetPage = 'anatomy';
-                    } else if (lowerHref.includes("biochemistry")) {
-                        targetPage = 'biochemistry';
-                    } else if (lowerHref.includes("physiology")) {
-                        targetPage = 'physiology';
-                    } else if (lowerHref.includes("index") || lowerHref.includes("home")) {
-                        targetPage = 'home';
-                    }
-                    
-                    // 3. Force the PARENT window (Streamlit) to reload with the new page
-                    window.top.location.href = "?page=" + targetPage;
-                }
-            });
-        });
-    });
-</script>
-"""
+    return html_content, None
 
 # ---------------------------------------------------------
-# 3. APP EXECUTION
+# 3. MAIN APP LOGIC
 # ---------------------------------------------------------
 
-# A. Read URL to decide what to show
+# A. Get current page from URL query params
 query_params = st.query_params
 current_page = query_params.get("page", "home")
 
-# B. Load the raw HTML from the file
-html_content = get_file_content(current_page)
+# B. Load the content
+html_data, error = load_and_fix_html(current_page)
 
-if html_content:
-    # C. Inject the Javascript Fix at the end of the file
-    final_html = html_content + force_nav_script
-    
-    # D. Render
-    components.html(final_html, height=1000, scrolling=True)
-
+if html_data:
+    # C. Render the HTML
+    # height=1000 ensures it fits on screen
+    # scrolling=True allows you to scroll long quizzes
+    components.html(html_data, height=1000, scrolling=True)
 else:
-    st.error("⚠️ **System Error: File Not Found**")
-    st.info(f"The app tried to load the page: `{current_page}`")
-    st.write("Files found in folder:", os.listdir())
+    # Error Screen
+    st.error("⚠️ System Error")
+    st.warning(f"Could not load page: {error}")
+    st.info("Please verify your file names match exactly: `index.html`, `Anatomy.html`, `biochemistry.html`, `physiology.html`")
+    st.write("Files in current folder:", os.listdir())
