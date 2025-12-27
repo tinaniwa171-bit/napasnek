@@ -4,138 +4,146 @@ import os
 import re
 
 # ---------------------------------------------------------
-# CONFIGURATION
+# 1. APP CONFIGURATION
 # ---------------------------------------------------------
-st.set_page_config(layout="wide", page_title="NAPASNEK QBANK")
+st.set_page_config(
+    page_title="NAPASNEK QBANK",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-# Credentials for the Python-side Login
-VALID_USERNAME = "student"
-VALID_PASSWORD = "admin123"
+# Hide Streamlit's default elements (Header, Footer, Menu) for a "Pro" look
+st.markdown("""
+    <style>
+        #MainMenu {visibility: hidden;}
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+        .block-container {
+            padding-top: 0rem;
+            padding-bottom: 0rem;
+            padding-left: 0rem;
+            padding-right: 0rem;
+        }
+        iframe {
+            width: 100%;
+            border: none;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # ---------------------------------------------------------
-# 1. SESSION STATE (Memory)
+# 2. SESSION & LOGIN LOGIC
 # ---------------------------------------------------------
+# Credentials
+VALID_USERNAME = "napasnek"
+VALID_PASSWORD = "napasnek2028"
+
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
-# ---------------------------------------------------------
-# 2. LOGIN SCREEN (Python Native)
-# ---------------------------------------------------------
-def show_login():
-    st.markdown("""
-        <style>
-            .stApp { background-color: #f4f7f6; }
-            .login-box {
-                max-width: 400px;
-                margin: 50px auto;
-                padding: 40px;
-                background: white;
-                border-radius: 15px;
-                box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-                text-align: center;
-            }
-        </style>
-    """, unsafe_allow_html=True)
-
+def login_screen():
+    # Use columns to center the login box
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
-        st.title("🔒 Login")
-        user = st.text_input("Username")
-        password = st.text_input("Password", type="password")
+        st.write("")
+        st.write("") # Spacing
+        st.write("")
+        st.markdown("<h1 style='text-align: center; color: #2c3e50;'>🔒 NAPASNEK 2028</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #7f8c8d;'>Secure Student Portal</p>", unsafe_allow_html=True)
         
-        if st.button("Enter Dashboard", type="primary", use_container_width=True):
-            if user == VALID_USERNAME and password == VALID_PASSWORD:
-                st.session_state.logged_in = True
-                st.rerun()
-            else:
-                st.error("Incorrect Username or Password")
+        with st.form("login_form"):
+            user = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submit = st.form_submit_button("Access Dashboard", type="primary", use_container_width=True)
+            
+            if submit:
+                if user == VALID_USERNAME and password == VALID_PASSWORD:
+                    st.session_state.logged_in = True
+                    st.rerun()
+                else:
+                    st.error("Invalid Credentials")
 
 # ---------------------------------------------------------
-# 3. HTML PROCESSOR (The Magic Fix)
+# 3. HTML PROCESSING ENGINE
 # ---------------------------------------------------------
 def get_processed_html(page_name):
-    # Map URL names to File names
-    files = {
+    """
+    Reads the HTML file and modifies links to work with Streamlit navigation.
+    """
+    # Map 'page_name' from URL to actual 'filename'
+    file_map = {
         "home": "index.html",
         "biochemistry": "biochemistry.html",
         "physiology": "physiology.html",
-        "anatomy": "Anatomy.html" # Note Capital A
+        "anatomy": "Anatomy.html" # Capital A matches your uploaded file
     }
     
-    filename = files.get(page_name, "index.html")
+    filename = file_map.get(page_name, "index.html")
 
-    # A. Robust File Finding (Case Insensitive)
+    # 1. Robust File Loading (Case Insensitive Fallback)
     if not os.path.exists(filename):
         for f in os.listdir():
             if f.lower() == filename.lower():
                 filename = f
                 break
-    
+                
     if not os.path.exists(filename):
-        return f"<h1>Error: File {filename} not found.</h1>"
+        return f"<h1 style='text-align:center; margin-top:50px;'>Error: File '{filename}' not found.</h1>"
 
-    # B. Read the File
+    # 2. Read the file
     with open(filename, "r", encoding="utf-8") as f:
-        html = f.read()
+        html_content = f.read()
 
-    # C. PATCH 1: REMOVE OLD LOGIN FROM INDEX.HTML
-    # Your index.html has a JS login overlay. We must remove it so it doesn't block the view.
+    # 3. FIX FOR INDEX.HTML (Disable JS Login / Show Dashboard)
+    # Since we are using Python login, we strip the JS login UI from the HTML
     if page_name == "home":
-        # Remove the login overlay div
-        html = re.sub(r'<div id="login-overlay">.*?</div>', '', html, flags=re.DOTALL)
-        # Force dashboard to be visible (it was hidden by default in your CSS)
-        html = html.replace('display: none;', 'display: flex;')
-        html = html.replace('#dashboard-content {', '#dashboard-content { display: block !important;')
+        # Force the dashboard div to be visible
+        html_content = html_content.replace('display: none;', 'display: flex;')
+        # Hide the login overlay div using inline CSS injection
+        html_content = html_content.replace('</head>', '<style>#login-overlay { display: none !important; } #dashboard-content { display: flex !important; }</style></head>')
 
-    # D. PATCH 2: REWRITE LINKS
-    # We change href="anatomy.html" to href="?page=anatomy" target="_top"
-    # target="_top" is CRITICAL. It forces the browser to reload the whole tab.
+    # 4. FIX NAVIGATION LINKS (The "Magic" Link Replacer)
+    # We find href="page.html" and change it to href="?page=page_id" target="_top"
+    # target="_top" forces the browser to reload the URL, triggering Streamlit to switch pages.
     
     replacements = {
+        # Biochemistry
         'href="biochemistry.html"': 'href="?page=biochemistry" target="_top"',
-        'href="physiology.html"':   'href="?page=physiology" target="_top"',
-        'href="anatomy.html"':      'href="?page=anatomy" target="_top"',
-        'href="Anatomy.html"':      'href="?page=anatomy" target="_top"',
-        'href="index.html"':        'href="?page=home" target="_top"',
-        
-        # Single quote variations
         "href='biochemistry.html'": "href='?page=biochemistry' target='_top'",
-        "href='physiology.html'":   "href='?page=physiology' target='_top'",
-        "href='anatomy.html'":      "href='?page=anatomy' target='_top'",
-        "href='Anatomy.html'":      "href='?page=anatomy' target='_top'",
-        "href='index.html'":        "href='?page=home' target='_top'"
-    }
-    
-    for old, new in replacements.items():
-        html = html.replace(old, new)
         
-    return html
+        # Physiology
+        'href="physiology.html"': 'href="?page=physiology" target="_top"',
+        "href='physiology.html'": "href='?page=physiology' target='_top'",
+        
+        # Anatomy (Handles multiple capitalizations just in case)
+        'href="anatomy.html"': 'href="?page=anatomy" target="_top"',
+        "href='anatomy.html'": "href='?page=anatomy' target='_top'",
+        'href="Anatomy.html"': 'href="?page=anatomy" target="_top"',
+        "href='Anatomy.html'": "href='?page=anatomy' target='_top'",
+
+        # Back to Home
+        'href="index.html"': 'href="?page=home" target="_top"',
+        "href='index.html'": "href='?page=home' target='_top'"
+    }
+
+    for old_link, new_link in replacements.items():
+        html_content = html_content.replace(old_link, new_link)
+
+    return html_content
 
 # ---------------------------------------------------------
-# 4. MAIN APP LOGIC
+# 4. MAIN APP EXECUTION
 # ---------------------------------------------------------
-
-# Step 1: Check Login
 if not st.session_state.logged_in:
-    show_login()
+    login_screen()
 else:
-    # Step 2: Get Current Page from URL
-    # When you click a link, the page reloads with ?page=anatomy
+    # 1. Get the requested page from URL (defaults to 'home')
     query_params = st.query_params
     current_page = query_params.get("page", "home")
-    
-    # Step 3: Load and Fix the HTML
-    html_content = get_processed_html(current_page)
-    
-    # Step 4: Display it
-    # We use a large height to fit the whole quiz
-    components.html(html_content, height=1200, scrolling=True)
-    
-    # Step 5: Clean up Streamlit UI (Hide header/footer)
-    st.markdown("""
-        <style>
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            .block-container {padding-top: 0rem; padding-bottom: 0rem; padding-left:0; padding-right:0;}
-        </style>
-    """, unsafe_allow_html=True)
+
+    # 2. Process the HTML to make it Streamlit-compatible
+    final_html = get_processed_html(current_page)
+
+    # 3. Render the HTML
+    # We use a very high height to ensure no double scrollbars appear inside the component
+    components.html(final_html, height=1200, scrolling=True)
