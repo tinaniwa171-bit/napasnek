@@ -8,92 +8,102 @@ import re
 # ---------------------------------------------------------
 st.set_page_config(layout="wide", page_title="NAPASNEK QBANK")
 
-# Credentials
-VALID_USERNAME = "napasnek"
-VALID_PASSWORD = "napasnek2028"
+# Credentials for the Python-side Login
+VALID_USERNAME = "student"
+VALID_PASSWORD = "admin123"
 
 # ---------------------------------------------------------
-# 1. SESSION STATE SETUP (Memory)
+# 1. SESSION STATE (Memory)
 # ---------------------------------------------------------
-# This remembers if you are logged in, even when pages change.
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
 # ---------------------------------------------------------
-# 2. LOGIN SYSTEM (Python Native)
+# 2. LOGIN SCREEN (Python Native)
 # ---------------------------------------------------------
-def login_screen():
+def show_login():
     st.markdown("""
         <style>
-            .login-container {
+            .stApp { background-color: #f4f7f6; }
+            .login-box {
                 max-width: 400px;
-                margin: 100px auto;
-                padding: 2rem;
+                margin: 50px auto;
+                padding: 40px;
                 background: white;
-                border-radius: 10px;
-                box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+                border-radius: 15px;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.1);
                 text-align: center;
-                font-family: 'Segoe UI', sans-serif;
             }
         </style>
     """, unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1,1,1])
+
+    col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         st.title("🔒 Login")
         user = st.text_input("Username")
         password = st.text_input("Password", type="password")
         
-        if st.button("Access Portal", type="primary"):
+        if st.button("Enter Dashboard", type="primary", use_container_width=True):
             if user == VALID_USERNAME and password == VALID_PASSWORD:
                 st.session_state.logged_in = True
                 st.rerun()
             else:
-                st.error("Invalid Credentials")
+                st.error("Incorrect Username or Password")
 
 # ---------------------------------------------------------
-# 3. HTML CLEANER
+# 3. HTML PROCESSOR (The Magic Fix)
 # ---------------------------------------------------------
-def clean_html_for_streamlit(page_name):
-    """
-    Reads the HTML files and modifies them to work inside Streamlit.
-    """
+def get_processed_html(page_name):
+    # Map URL names to File names
     files = {
         "home": "index.html",
         "biochemistry": "biochemistry.html",
         "physiology": "physiology.html",
-        "anatomy": "Anatomy.html"
+        "anatomy": "Anatomy.html" # Note Capital A
     }
     
     filename = files.get(page_name, "index.html")
-    
-    # Robust File Finder (Case Insensitive)
+
+    # A. Robust File Finding (Case Insensitive)
     if not os.path.exists(filename):
         for f in os.listdir():
             if f.lower() == filename.lower():
                 filename = f
                 break
     
+    if not os.path.exists(filename):
+        return f"<h1>Error: File {filename} not found.</h1>"
+
+    # B. Read the File
     with open(filename, "r", encoding="utf-8") as f:
         html = f.read()
 
-    # --- SPECIAL FIX FOR DASHBOARD (index.html) ---
+    # C. PATCH 1: REMOVE OLD LOGIN FROM INDEX.HTML
+    # Your index.html has a JS login overlay. We must remove it so it doesn't block the view.
     if page_name == "home":
-        # 1. Remove the HTML Login Overlay (since Python handles it now)
+        # Remove the login overlay div
         html = re.sub(r'<div id="login-overlay">.*?</div>', '', html, flags=re.DOTALL)
-        
-        # 2. Force the dashboard to be visible (it was hidden by default in your CSS)
-        html = html.replace('display: none;', 'display: flex;') 
+        # Force dashboard to be visible (it was hidden by default in your CSS)
+        html = html.replace('display: none;', 'display: flex;')
         html = html.replace('#dashboard-content {', '#dashboard-content { display: block !important;')
 
-    # --- FIX ALL LINKS ---
-    # Convert standard links to Streamlit URL parameters
+    # D. PATCH 2: REWRITE LINKS
+    # We change href="anatomy.html" to href="?page=anatomy" target="_top"
+    # target="_top" is CRITICAL. It forces the browser to reload the whole tab.
+    
     replacements = {
-        'href="biochemistry.html"': 'href="?page=biochemistry" target="_self"',
-        'href="physiology.html"':   'href="?page=physiology" target="_self"',
-        'href="anatomy.html"':      'href="?page=anatomy" target="_self"',
-        'href="Anatomy.html"':      'href="?page=anatomy" target="_self"',
-        'href="index.html"':        'href="?page=home" target="_self"'
+        'href="biochemistry.html"': 'href="?page=biochemistry" target="_top"',
+        'href="physiology.html"':   'href="?page=physiology" target="_top"',
+        'href="anatomy.html"':      'href="?page=anatomy" target="_top"',
+        'href="Anatomy.html"':      'href="?page=anatomy" target="_top"',
+        'href="index.html"':        'href="?page=home" target="_top"',
+        
+        # Single quote variations
+        "href='biochemistry.html'": "href='?page=biochemistry' target='_top'",
+        "href='physiology.html'":   "href='?page=physiology' target='_top'",
+        "href='anatomy.html'":      "href='?page=anatomy' target='_top'",
+        "href='Anatomy.html'":      "href='?page=anatomy' target='_top'",
+        "href='index.html'":        "href='?page=home' target='_top'"
     }
     
     for old, new in replacements.items():
@@ -105,38 +115,27 @@ def clean_html_for_streamlit(page_name):
 # 4. MAIN APP LOGIC
 # ---------------------------------------------------------
 
+# Step 1: Check Login
 if not st.session_state.logged_in:
-    login_screen()
+    show_login()
 else:
-    # Get current page from URL
+    # Step 2: Get Current Page from URL
+    # When you click a link, the page reloads with ?page=anatomy
     query_params = st.query_params
-    page = query_params.get("page", "home")
+    current_page = query_params.get("page", "home")
     
-    # Load the HTML content
-    try:
-        html_content = clean_html_for_streamlit(page)
-        
-        if page == "home":
-            # For the Dashboard, we use st.markdown so links allow navigation
-            # We wrap it in a div to ensure styling applies
-            st.markdown(html_content, unsafe_allow_html=True)
-            
-            # Hide default Streamlit padding for a cleaner look
-            st.markdown("""
-                <style>
-                    .block-container { padding-top: 1rem; padding-bottom: 0rem; }
-                    header { visibility: hidden; }
-                    footer { visibility: hidden; }
-                </style>
-            """, unsafe_allow_html=True)
-            
-        else:
-            # For Quiz Pages (Anatomy/Physio/Bio), we MUST use components.html
-            # because they contain complex JavaScript for the quiz logic.
-            # We inject a <base> tag to ensure the "Back" button works.
-            html_content = '<base target="_top">' + html_content
-            components.html(html_content, height=1000, scrolling=True)
-            
-    except Exception as e:
-        st.error("Error loading file. Please ensure index.html, Anatomy.html, biochemistry.html, and physiology.html are in this folder.")
-        st.code(e)
+    # Step 3: Load and Fix the HTML
+    html_content = get_processed_html(current_page)
+    
+    # Step 4: Display it
+    # We use a large height to fit the whole quiz
+    components.html(html_content, height=1200, scrolling=True)
+    
+    # Step 5: Clean up Streamlit UI (Hide header/footer)
+    st.markdown("""
+        <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            .block-container {padding-top: 0rem; padding-bottom: 0rem; padding-left:0; padding-right:0;}
+        </style>
+    """, unsafe_allow_html=True)
